@@ -343,14 +343,22 @@ private actor JSONRPCSession {
 
 struct CodexExecutableLocator: Sendable {
     let explicitURL: URL?
+    let bundledURL: URL?
 
-    init(explicitURL: URL? = nil) {
+    init(
+        explicitURL: URL? = nil,
+        bundledURL: URL? = Bundle.main.url(forAuxiliaryExecutable: "codex")
+    ) {
         self.explicitURL = explicitURL
+        self.bundledURL = bundledURL
     }
 
     func locate(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> URL {
         if let explicitURL, isExecutable(explicitURL.path) {
             return explicitURL
+        }
+        if let bundledURL, isExecutable(bundledURL.path) {
+            return bundledURL
         }
         let command = environment["CODEX_CLI_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let executable = command.flatMap { $0.isEmpty ? nil : $0 } ?? "codex"
@@ -373,6 +381,15 @@ struct CodexExecutableLocator: Sendable {
 
     func launchConfiguration() throws -> (executable: URL, environment: [String: String]) {
         var environment = ProcessInfo.processInfo.environment
+        if explicitURL == nil, let bundledURL {
+            guard isExecutable(bundledURL.path) else {
+                throw CodexClientError.processLaunchFailed(
+                    "The bundled Codex executable is not executable: \(bundledURL.path)"
+                )
+            }
+            environment["CODEX_CLI_PATH"] = bundledURL.path
+            return (bundledURL, environment)
+        }
         if explicitURL == nil {
             // GUI apps do not inherit the terminal's login PATH. Read the same shell settings
             // Desktop uses, and pass that PATH to npm's `#!/usr/bin/env node` launcher as well.

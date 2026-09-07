@@ -113,6 +113,20 @@ struct CodexClientTests {
         #expect(located == fixture.executable)
     }
 
+    @Test func prefersBundledRuntimeOverStaleShellPath() throws {
+        let fixture = try ScriptFixture(body: "exit 0")
+        defer { fixture.remove() }
+        let stalePath = fixture.root.appending(path: "missing-codex")
+        let locator = CodexExecutableLocator(bundledURL: fixture.executable)
+
+        #expect(
+            try locator.locate(environment: ["CODEX_CLI_PATH": stalePath.path]) == fixture.executable
+        )
+        let launch = try locator.launchConfiguration()
+        #expect(launch.executable == fixture.executable)
+        #expect(launch.environment["CODEX_CLI_PATH"] == fixture.executable.path)
+    }
+
     @Test func resolvesSystemCommandFromPATHWithoutSwitcherSpecificOverride() throws {
         let fixture = try ScriptFixture(body: "exit 0")
         defer { fixture.remove() }
