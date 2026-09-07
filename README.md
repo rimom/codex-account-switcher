@@ -158,6 +158,18 @@ Create a local app bundle:
 
 The bundle is written to `.build/release/Codex Account Switcher.app`.
 
+For a local build that launches Desktop with a specific compatible Codex backend, package both the
+backend and its code-mode host as separate auxiliary executables:
+
+```bash
+CODEX_BACKEND_BINARY=/absolute/path/to/codex \
+CODEX_CODE_MODE_HOST_BINARY=/absolute/path/to/codex-code-mode-host \
+./scripts/package-local-app.sh
+```
+
+The normal package uses the installed Codex runtime. The optional backend packaging is kept
+separate because the backend and its companion must be updated together.
+
 ### Automated releases
 
 The release workflow starts only when an existing `v*` tag is pushed. Ordinary pushes to `main` continue to run CI and never start a release or create a tag. A maintainer first updates `CITATION.cff`, the package default, and the Codex app-server client to the same semantic version, merges those changes, then creates and pushes the matching tag from the current `origin/main` commit.

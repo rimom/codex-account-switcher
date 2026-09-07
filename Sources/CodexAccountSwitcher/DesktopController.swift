@@ -3,6 +3,8 @@ import Foundation
 
 enum DesktopControllerError: LocalizedError, Sendable {
     case applicationNotFound
+    case bundledBackendNotExecutable
+    case bundledBackendCompanionNotFound
     case quitRequestFailed
     case didNotExit
     case reopenFailed
@@ -11,6 +13,10 @@ enum DesktopControllerError: LocalizedError, Sendable {
         switch self {
         case .applicationNotFound:
             "The Codex Desktop application could not be found."
+        case .bundledBackendNotExecutable:
+            "The bundled Codex app-server executable is not executable."
+        case .bundledBackendCompanionNotFound:
+            "The bundled Codex code-mode host could not be found beside the app-server executable."
         case .quitRequestFailed:
             "Codex Desktop rejected the quit request."
         case .didNotExit:
@@ -65,13 +71,32 @@ struct DesktopController: DesktopControlling {
         guard let url = applicationURL() else {
             throw DesktopControllerError.applicationNotFound
         }
+        let environment = try bundledBackendEnvironment()
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
+        configuration.createsNewApplicationInstance = true
+        configuration.environment = environment
         do {
             _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
         } catch {
             throw DesktopControllerError.reopenFailed
         }
+    }
+
+    private func bundledBackendEnvironment() throws -> [String: String] {
+        guard let backendURL = Bundle.main.url(forAuxiliaryExecutable: "codex") else {
+            return [:]
+        }
+        guard FileManager.default.isExecutableFile(atPath: backendURL.path) else {
+            throw DesktopControllerError.bundledBackendNotExecutable
+        }
+        let companionURL = backendURL
+            .deletingLastPathComponent()
+            .appending(path: "codex-code-mode-host")
+        guard FileManager.default.isExecutableFile(atPath: companionURL.path) else {
+            throw DesktopControllerError.bundledBackendCompanionNotFound
+        }
+        return ["CODEX_CLI_PATH": backendURL.path]
     }
 
     private func applicationURL() -> URL? {

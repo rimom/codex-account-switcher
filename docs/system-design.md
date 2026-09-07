@@ -66,7 +66,9 @@ Recommended stack:
 - Foundation `FileManager`, `Process`, and JSON coding;
 - Codex app-server JSON-RPC over stdio for identity and Usage reads.
 
-No third-party runtime dependency is required beyond the installed Codex executable.
+No third-party runtime dependency is required beyond the installed Codex executable. A local
+package may optionally embed a compatible Codex executable and its `codex-code-mode-host`
+companion; Desktop receives that executable through `CODEX_CLI_PATH`.
 
 ## 4. High-level architecture
 
@@ -284,7 +286,11 @@ Lookup order:
 2. the login shell's shared `CODEX_CLI_PATH`, resolved through its `PATH` when it is a command name;
 3. the login shell's `codex` command when no shared override is set.
 
-The runtime version is never pinned. Each operation resolves the current system command. The same login-shell PATH is passed to app-server so npm launchers can resolve Node. A missing command or invalid explicit path is an error; the switcher does not silently start another bundled version.
+The normal runtime version is never pinned. Each operation resolves the current system command. A
+local package with an embedded backend is the explicit exception: Desktop receives that backend
+through `CODEX_CLI_PATH`, and packaging requires its sibling `codex-code-mode-host`. The same
+login-shell PATH is passed to app-server so npm launchers can resolve Node. A missing command or
+invalid explicit path is an error.
 
 If not found, show one direct error:
 
@@ -437,6 +443,9 @@ If Desktop is not running, `close()` succeeds immediately.
 ### 11.2 Open
 
 Use `NSWorkspace.shared.openApplication` with the installed Codex application URL.
+When the app bundle contains an optional backend, pass its path as `CODEX_CLI_PATH` and require the
+adjacent `codex-code-mode-host` before opening Desktop. This keeps the local Azure-tested backend
+together without modifying the installed ChatGPT application.
 
 If launch fails, return the AppKit error. The account switch remains at whatever stage already completed; no automatic account restoration occurs.
 
