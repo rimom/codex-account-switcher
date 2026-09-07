@@ -31,11 +31,6 @@ enum JSONValue: Decodable, Sendable {
         return value
     }
 
-    var arrayValue: [JSONValue]? {
-        guard case let .array(value) = self else { return nil }
-        return value
-    }
-
     var stringValue: String? {
         guard case let .string(value) = self else { return nil }
         return value
@@ -46,7 +41,7 @@ enum JSONValue: Decodable, Sendable {
         return value
     }
 
-    var intValue: Int? { doubleValue.map(Int.init) }
+    var intValue: Int? { doubleValue.flatMap(Int.init(exactly:)) }
 
     var boolValue: Bool? {
         guard case let .bool(value) = self else { return nil }
@@ -134,14 +129,17 @@ private final class LinePump: @unchecked Sendable {
 
     func finish() {
         lock.lock()
-        let tail = buffer
-        buffer.removeAll()
+        guard !isFinished else { lock.unlock(); return }
         isFinished = true
+        if !buffer.isEmpty {
+            lines.append(buffer)
+            buffer.removeAll()
+        }
         let pending = waiters
         waiters.removeAll()
+        let deliveries = pending.map { _ in lines.isEmpty ? nil : lines.removeFirst() }
         lock.unlock()
-        if !tail.isEmpty { deliver(tail) }
-        pending.forEach { $0.resume(returning: nil) }
+        for (waiter, data) in zip(pending, deliveries) { waiter.resume(returning: data) }
     }
 }
 
@@ -150,11 +148,43 @@ private final class StderrDrain: @unchecked Sendable {
     private var tail = Data()
     private let maximumBytes = 4_096
 
+    private var isFinished = false
+    private var waiters: [CheckedContinuation<String, Never>] = []
+
+    func finishedMessage() async -> String {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if isFinished {
+                let message = String(decoding: tail, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                lock.unlock()
+                continuation.resume(returning: message)
+            } else {
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    func finish() {
+        lock.lock()
+        guard !isFinished else { lock.unlock(); return }
+        isFinished = true
+        let message = String(decoding: tail, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        pending.forEach { $0.resume(returning: message) }
+    }
+
     init(handle: FileHandle) {
         handle.readabilityHandler = { [weak self] readable in
             guard let self else { return }
             let data = readable.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                readable.readabilityHandler = nil
+                self.finish()
+                return
+            }
             self.lock.lock()
             self.tail.append(data)
             if self.tail.count > self.maximumBytes {
@@ -173,17 +203,16 @@ private actor JSONRPCSession {
     private let pump: LinePump
     private let stderrDrain: StderrDrain
     private let decoder = JSONDecoder()
-    private let encoder = JSONSerialization.self
     private var didTimeout = false
 
-    init(executableURL: URL, profileHome: URL) throws {
+    init(executableURL: URL, profileHome: URL, environment inheritedEnvironment: [String: String]) throws {
         let process = Process()
         let inputPipe = Pipe()
         let outputPipe = Pipe()
         let errorPipe = Pipe()
         process.executableURL = executableURL
         process.arguments = ["app-server", "--stdio"]
-        var environment = ProcessInfo.processInfo.environment
+        var environment = inheritedEnvironment
         environment["CODEX_HOME"] = profileHome.path
         process.environment = environment
         process.standardInput = inputPipe
@@ -214,7 +243,7 @@ private actor JSONRPCSession {
                 "clientInfo": [
                     "name": "codex_account_switcher",
                     "title": "Codex Account Switcher",
-                    "version": "0.1.6",
+                    "version": "0.1.10",
                 ],
             ],
         ])
@@ -230,9 +259,6 @@ private actor JSONRPCSession {
     ) async throws -> JSONValue {
         try send(["method": method, "id": id, "params": params])
         let envelope = try await response(id: id, timeout: timeout)
-        if let error = envelope.error {
-            throw CodexClientError.remoteError(code: error.code, message: error.message)
-        }
         guard let result = envelope.result else { throw CodexClientError.malformedResponse }
         return result
     }
@@ -253,6 +279,7 @@ private actor JSONRPCSession {
             process.terminate()
         }
         pump.finish()
+        stderrDrain.finish()
     }
 
     private func response(id: Int, timeout: Duration) async throws -> RPCEnvelope {
@@ -274,19 +301,24 @@ private actor JSONRPCSession {
         }
         defer { timeoutTask.cancel() }
 
-        while let line = try await nextLine() {
+        while let line = try await pump.next() {
             let message: RPCEnvelope
             do {
                 message = try decoder.decode(RPCEnvelope.self, from: line)
             } catch {
                 throw CodexClientError.malformedResponse
             }
-            if let error = message.error, message.id != nil {
-                throw CodexClientError.remoteError(code: error.code, message: error.message)
+            if predicate(message) {
+                if let error = message.error {
+                    throw CodexClientError.remoteError(code: error.code, message: error.message)
+                }
+                return message
             }
-            if predicate(message) { return message }
         }
         if didTimeout { throw CodexClientError.timeout }
+        let details = await stderrDrain.finishedMessage()
+        if didTimeout { throw CodexClientError.timeout }
+        if !details.isEmpty { throw CodexClientError.connectionClosedWithDetails(details) }
         throw CodexClientError.connectionClosed
     }
 
@@ -296,10 +328,7 @@ private actor JSONRPCSession {
         errorOutput.readabilityHandler = nil
         if process.isRunning { process.terminate() }
         pump.finish()
-    }
-
-    private func nextLine() async throws -> Data? {
-        try await pump.next()
+        stderrDrain.finish()
     }
 
     private func send(_ object: [String: Any]) throws {
@@ -319,29 +348,22 @@ struct CodexExecutableLocator: Sendable {
         self.explicitURL = explicitURL
     }
 
-    func locate() throws -> URL {
+    func locate(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> URL {
         if let explicitURL, isExecutable(explicitURL.path) {
             return explicitURL
         }
-        let environment = ProcessInfo.processInfo.environment
-        if let override = environment["CODEX_SWITCHER_CODEX_PATH"], isExecutable(override) {
-            return URL(fileURLWithPath: override)
+        let command = environment["CODEX_CLI_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let executable = command.flatMap { $0.isEmpty ? nil : $0 } ?? "codex"
+        if executable.contains("/") {
+            guard executable.hasPrefix("/"), isExecutable(executable) else {
+                throw CodexClientError.processLaunchFailed("CODEX_CLI_PATH is not executable: \(executable)")
+            }
+            return URL(fileURLWithPath: executable)
         }
-        if let bundled = Bundle.main.url(forAuxiliaryExecutable: "codex"), isExecutable(bundled.path) {
-            return bundled
-        }
-
-        let knownPaths = [
-            "/Applications/ChatGPT.app/Contents/Resources/codex",
-            "/Applications/Codex.app/Contents/Resources/codex",
-        ]
-        if let path = knownPaths.first(where: isExecutable) {
-            return URL(fileURLWithPath: path)
-        }
-
         if let path = environment["PATH"]?
             .split(separator: ":")
-            .map({ String($0) + "/codex" })
+            .filter({ $0.hasPrefix("/") })
+            .map({ String($0) + "/" + executable })
             .first(where: isExecutable)
         {
             return URL(fileURLWithPath: path)
@@ -349,20 +371,36 @@ struct CodexExecutableLocator: Sendable {
         throw CodexClientError.executableNotFound
     }
 
+    func launchConfiguration() throws -> (executable: URL, environment: [String: String]) {
+        var environment = ProcessInfo.processInfo.environment
+        if explicitURL == nil {
+            // GUI apps do not inherit the terminal's login PATH. Read the same shell settings
+            // Desktop uses, and pass that PATH to npm's `#!/usr/bin/env node` launcher as well.
+            let shell = Process()
+            let output = Pipe()
+            shell.executableURL = URL(fileURLWithPath: environment["SHELL"] ?? "/bin/zsh")
+            shell.arguments = ["-l", "-c", "printf '\\0%s\\0%s\\0' \"$PATH\" \"${CODEX_CLI_PATH:-codex}\""]
+            shell.standardOutput = output
+            shell.standardError = FileHandle.nullDevice
+            try shell.run()
+            let bytes = output.fileHandleForReading.readDataToEndOfFile()
+            shell.waitUntilExit()
+            let fields = String(decoding: bytes, as: UTF8.self).split(separator: "\0", omittingEmptySubsequences: false)
+            guard shell.terminationStatus == 0, fields.count >= 4 else {
+                throw CodexClientError.processLaunchFailed("Could not read the login shell's Codex path.")
+            }
+            environment["PATH"] = String(fields[fields.count - 3])
+            environment["CODEX_CLI_PATH"] = String(fields[fields.count - 2])
+        }
+        return (try locate(environment: environment), environment)
+    }
+
     private func isExecutable(_ path: String) -> Bool {
         FileManager.default.isExecutableFile(atPath: path)
     }
 }
 
-protocol WeeklyUsageReading: Sendable {
-    func readWeeklyUsage(profileHome: URL) async throws -> WeeklyUsage
-}
-
-protocol LoginServicing: Sendable {
-    func login(profileHome: URL) async throws -> AccountIdentity
-}
-
-struct CodexClient: CodexIdentityReading, WeeklyUsageReading, LoginServicing {
+struct CodexClient: CodexIdentityReading {
     let locator: CodexExecutableLocator
     let requestTimeout: Duration
 
@@ -395,8 +433,8 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, LoginServicing {
     }
 
     func login(profileHome: URL) async throws -> AccountIdentity {
-        let executable = try locator.locate()
-        let session = try JSONRPCSession(executableURL: executable, profileHome: profileHome)
+        let launch = try locator.launchConfiguration()
+        let session = try JSONRPCSession(executableURL: launch.executable, profileHome: profileHome, environment: launch.environment)
         return try await withTaskCancellationHandler {
             do {
                 try await session.initialize(timeout: requestTimeout)
@@ -476,8 +514,8 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, LoginServicing {
         profileHome: URL,
         operation: (JSONRPCSession) async throws -> T
     ) async throws -> T {
-        let executable = try locator.locate()
-        let session = try JSONRPCSession(executableURL: executable, profileHome: profileHome)
+        let launch = try locator.launchConfiguration()
+        let session = try JSONRPCSession(executableURL: launch.executable, profileHome: profileHome, environment: launch.environment)
         do {
             try await session.initialize(timeout: requestTimeout)
             let result = try await operation(session)
@@ -505,14 +543,10 @@ struct CodexClient: CodexIdentityReading, WeeklyUsageReading, LoginServicing {
     }
 
     private func parseWindows(_ value: JSONValue) -> [RateLimitWindow] {
-        var buckets: [JSONValue] = []
-        if let rateLimits = value["rateLimits"] { buckets.append(rateLimits) }
-        if let map = value["rateLimitsByLimitId"]?.objectValue {
-            buckets.append(contentsOf: map.values)
+        guard let bucket = value["rateLimitsByLimitId"]?["codex"] ?? value["rateLimits"] else {
+            return []
         }
-        return buckets.flatMap { bucket in
-            [bucket["primary"], bucket["secondary"]].compactMap(parseWindow)
-        }
+        return [bucket["primary"], bucket["secondary"]].compactMap(parseWindow)
     }
 
     private func parseWindow(_ value: JSONValue?) -> RateLimitWindow? {

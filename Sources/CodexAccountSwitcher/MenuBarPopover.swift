@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MenuBarPopover: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var updater: AppUpdater
     @State private var page: PopoverPage = .accounts
 
     var body: some View {
@@ -25,8 +26,9 @@ struct MenuBarPopover: View {
                     ManageAccountsView(model: model) {
                         page = .accounts
                     }
+                    .disabled(updater.isInstalling)
                 case .settings:
-                    SettingsView(model: model) {
+                    SettingsView(model: model, updater: updater) {
                         page = .accounts
                     }
                 case let .confirmAccountSwitch(account):
@@ -46,6 +48,7 @@ struct MenuBarPopover: View {
                             Task { await model.switchAccount(to: account.id) }
                         }
                     )
+                    .disabled(updater.isInstalling)
                 case let .confirmProviderSwitch(provider):
                     SwitchConfirmationPage(
                         title: model.format("switch_provider_title", provider.displayName),
@@ -60,6 +63,7 @@ struct MenuBarPopover: View {
                             Task { await model.switchProvider(to: provider) }
                         }
                     )
+                    .disabled(updater.isInstalling)
                 }
             }
         }
@@ -76,7 +80,13 @@ struct MenuBarPopover: View {
     private var accountPage: some View {
         VStack(spacing: 0) {
             if !model.activeIdentityConfirmed {
-                Text(model.text("active_unconfirmed"))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.text("active_unconfirmed"))
+                    Button(model.text("manage")) {
+                        page = .manageAccounts
+                    }
+                    .disabled(model.isMutating || model.isAddingAccount || updater.isInstalling)
+                }
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,7 +120,7 @@ struct MenuBarPopover: View {
                                 )
                             }
                             .buttonStyle(.plain)
-                            .disabled(model.isMutating)
+                            .disabled(model.isMutating || updater.isInstalling)
                         }
                     }
 
@@ -131,11 +141,29 @@ struct MenuBarPopover: View {
                                 )
                             }
                             .buttonStyle(.plain)
-                            .disabled(model.isMutating)
+                            .disabled(model.isMutating || updater.isInstalling)
                         }
                     }
                 }
                 .padding(5)
+            }
+
+            if let version = updater.availableVersion {
+                Divider()
+                HStack(spacing: 8) {
+                    Circle().fill(.blue).frame(width: 6, height: 6)
+                        .accessibilityHidden(true)
+                    Text(model.format("update_available", version))
+                        .font(.system(size: 11.5, weight: .medium))
+                    Spacer(minLength: 4)
+                    Button(model.text(updater.isInstalling ? "update_installing" : "update_action")) {
+                        updater.checkForUpdates()
+                    }
+                    .buttonStyle(.link)
+                    .disabled(model.isMutating || model.isAddingAccount || updater.isInstalling)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
 
             Divider()
@@ -146,7 +174,7 @@ struct MenuBarPopover: View {
                 ) {
                     page = .manageAccounts
                 }
-                .disabled(model.isMutating)
+                .disabled(model.isMutating || updater.isInstalling)
 
                 FooterAction(
                     title: model.text("settings"),
@@ -154,7 +182,7 @@ struct MenuBarPopover: View {
                 ) {
                     page = .settings
                 }
-                .disabled(model.isMutating)
+                .disabled(model.isMutating || updater.isInstalling)
 
                 FooterAction(
                     title: model.text("quit"),

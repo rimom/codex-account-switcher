@@ -102,7 +102,7 @@ The 5-hour line is omitted when its data is absent. The UI does not show an unav
 
 Input from Codex may include more than one rate-limit window. One `account/rateLimits/read` response supplies both normalized windows.
 
-Collect `primary` and `secondary` windows from the top-level rate limits and named rate-limit buckets, then choose the longest window whose duration is six through eight days:
+Select `rateLimitsByLimitId["codex"]` when present, otherwise the legacy top-level `rateLimits`. Read only that bucket’s `primary` and `secondary` windows, then choose the longest window whose duration is six through eight days. Other metered products must not supply Codex Usage:
 
 ```text
 fiveHour = first(windows where windowDurationMins == 300)
@@ -189,14 +189,14 @@ Cancel returns to the account list without closing the popover or starting the s
 After confirmation, disable additional actions while the seven-stage account operation runs:
 
 - `Closing Codex Desktop…`
-- `Saving current account…`
+- `Saving current account…` (read and match the active identity before saving its credential)
 - `Activating selected account…`
 - `Activating OpenAI provider…`
 - `Verifying selected account…`
 - `Saving selected account…`
 - `Opening Codex Desktop…`
 
-If Codex Desktop displays its `Quit ChatGPT?` warning for active local chats, the switcher force-quits the `com.openai.codex` Desktop process after a two-second normal-exit grace period and continues the switch. The user does not manually confirm or restart Desktop.
+If Codex Desktop displays its quit warning for active local chats, the user handles that native dialog. The switcher waits up to 30 seconds for normal exit and never force-quits Desktop. A rejected quit request or timeout stops the switch before credentials change, preserving Desktop's opportunity to flush task history. The user can finish or stop tasks and close Desktop before switching again.
 
 The stages are not configurable. A failure banner identifies the failed stage and retains the underlying diagnostic message.
 
@@ -266,18 +266,18 @@ Adding an account creates no current-account credential backup or rollback flow.
 
 The browser sign-in wait is tracked separately from profile mutations so the account list, Settings, and existing account actions remain interactive. While sign-in is pending, Manage Accounts shows a direct cancel action. Canceling stops the app-server login session without presenting an operation error.
 
-If login fails, show the Codex login error. The incomplete profile directory may remain on disk; the MVP does not hide the failure with automatic cleanup.
+If login fails, show the original Codex login error and remove only this attempt’s unregistered profile directory. Cancellation performs the same cleanup without a login error. If cleanup fails, expose that failure alongside the original error. Already registered profiles are never removed by this cleanup. Duplicate identities are rejected; distinct account IDs remain separate even when their emails match.
 
 ### 8.3 Remove
 
 Removing an inactive profile:
 
 ```text
-delete accounts/<profile-id>/
-→ delete profile metadata
+persist removal from profile metadata
+→ delete accounts/<profile-id>/
 ```
 
-If deletion fails, show the filesystem error. Do not add a tombstone or deferred cleanup queue.
+If metadata persistence fails, leave the credential directory intact. If directory deletion fails, restore the original account list and show the filesystem error; if this restoration also fails, show both errors. This does not guarantee atomic recursive deletion or process-crash recovery. Do not add a tombstone or deferred cleanup queue.
 
 The active profile's remove control is disabled.
 
@@ -285,14 +285,21 @@ Remove first opens a confirmation page inside the popover. Cancel and the header
 
 ## 9. Settings
 
-The in-popover Settings page contains four fields:
+The 326-point Settings page groups general preferences and software updates:
 
 ```text
 Launch at Login                [toggle]
 Show Percentage in Menu Bar   [toggle]
 Show 5-hour Usage             [toggle]
 Language  [System Default ▾]
+
+Software Update
+Check for updates automatically [toggle]
+Hourly update description
+Version 0.1.10      [Check for Updates]
 ```
+
+All setting rows use 13-point system text, 14-point horizontal insets, a minimum 44-point height, and small native controls aligned to the right. Group captions and supporting descriptions use 11-point system text. Row separators share the text insets. Approval messages and update failures wrap below the relevant row using the same description layout.
 
 Launch at Login reads and writes the main app's macOS Login Item registration. It shows a direct approval message and System Settings link for `requiresApproval`, and an unavailable message for `notFound`. The macOS status is the only source of truth and is not persisted in `settings.json`.
 
@@ -352,3 +359,15 @@ The MVP is accepted when:
 21. configured custom providers appear in a separate section and can be selected without exposing their credentials;
 22. provider switching writes only `model_provider`, restarts Codex Desktop, and does not claim to migrate existing conversations;
 23. only `main` is required for the repository's steady state.
+
+## 13. Switcher updates (September 5 development candidate)
+
+Sparkle checks hourly, with a manual check and automatic-check toggle in Settings. A blue menu-bar dot and a version/action row between the account list and footer indicate availability. Background checks remain quiet. Installation is initiated by the user and uses Sparkle download, validation, installation, and Switcher relaunch. Final relaunch waits until an account operation completes. Codex Desktop is outside this updater’s target scope.
+
+The tag workflow publishes the signed feed. See the ablation reports and release evidence for verification boundaries.
+
+## 14. First activation and external sign-in
+
+With no registered active account and no active auth.json, selecting a saved account activates it directly after Desktop exits normally. Verification or registry persistence failure removes the newly installed active credential and leaves the app signed out. Existing unregistered credentials are never overwritten by this path.
+
+Manage Accounts provides Register Current Account below Add Account. It reads the current shared login identity, updates that same identity’s saved credential or imports a new profile, and records it as active. A mismatch during switching links to Manage Accounts. Other profiles remain unchanged.
