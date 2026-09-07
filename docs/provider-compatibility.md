@@ -4,7 +4,7 @@ Account switching is the default experience. Provider selection requires explici
 
 ## Current behavior
 
-The switcher writes only `model_provider` through Codex app-server. It does not write `model`, reasoning settings, profiles, or model catalogs. It launches the installed Desktop normally and does not replace its backend or modify conversations.
+The switcher writes only `model_provider` through Codex app-server. It does not write `model`, reasoning settings, profiles, or model catalogs. The normal package launches the installed Desktop runtime and does not modify conversations. An optional local package can bundle a matching Codex backend and `codex-code-mode-host` when an installation needs the Azure model-list and Desktop-resume changes described below; that runtime packaging is separate from provider selection.
 
 | Transition | What the switcher changes | What still needs checking |
 | --- | --- | --- |
@@ -18,9 +18,9 @@ Provider and model are separate settings in the [official configuration guide](h
 
 ## Evidence and limits of the earlier Azure test
 
-The earlier local test used a configured Azure provider and model `gpt-5.6-sol`, followed by a modified Codex backend that parsed Azure's model-list response and exposed `gpt-6-astra`. A protocol query returned that model as visible. This was not a stock Desktop compatibility test or a recorded three-destination round trip with different model IDs. It cannot substantiate a general claim of seamless provider/model switching.
+The earlier local test used a configured Azure provider and model `gpt-5.6-sol`, followed by a modified Codex backend that queried Azure's model-list response, filtered for inference and chat-capable deployments, and exposed matching entries from Codex's bundled catalog, including `gpt-6-astra`. A protocol query returned that model as visible. A deployment ID without a corresponding bundled catalog entry is not synthesized. This was not a stock Desktop compatibility test or a recorded three-destination round trip with different model IDs. It cannot substantiate a general claim of seamless provider/model switching.
 
-Backend packaging and `CODEX_CLI_PATH` were introduced to deploy that local experiment. They are not necessary to select a configured provider and have been removed from this PR's final diff. Neither the local backend patches nor their binaries are part of the upstream feature.
+Backend packaging and `CODEX_CLI_PATH` were introduced to deploy that local experiment. They are not necessary to select a configured provider and are kept in a separate optional commit. Neither the local backend source changes nor their binaries are required by the provider-switching code.
 
 ## Required Desktop acceptance run (pending)
 
