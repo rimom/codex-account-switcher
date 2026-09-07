@@ -74,9 +74,9 @@ Expected call order:
 
 ```text
 closeDesktop
+activateOpenAIProvider
 saveCurrent
 activateTarget
-activateOpenAIProvider
 readActiveIdentity
 commitActiveAccountID
 openDesktop
@@ -85,7 +85,8 @@ openDesktop
 Inject an error at each call and assert:
 
 - the error reports the correct `SwitchStage`;
-- no later call occurs;
+- no later mutation call occurs;
+- failures after `closeDesktop` restore the relevant provider/credential state and call `openDesktop`;
 - no retry occurs;
 - `isMutating` returns to false after presentation.
 

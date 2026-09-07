@@ -75,19 +75,33 @@ private actor FakeCodex: CodexIdentityReading {
     let recorder: Recorder
     let original: AccountProfile
     let target: AccountProfile
+    let configuration: FakeProviderConfiguration
+    let failsTargetIdentity: Bool
     private var hasVerifiedOriginal = false
-    init(recorder: Recorder, original: AccountProfile, target: AccountProfile) {
+    init(
+        recorder: Recorder,
+        original: AccountProfile,
+        target: AccountProfile,
+        configuration: FakeProviderConfiguration,
+        failsTargetIdentity: Bool = false
+    ) {
         self.recorder = recorder
         self.original = original
         self.target = target
+        self.configuration = configuration
+        self.failsTargetIdentity = failsTargetIdentity
     }
 
     func readIdentity(profileHome: URL) async throws -> AccountIdentity {
+        guard await configuration.activeProviderID() == CodexConfigurationClient.openAIProviderID else {
+            throw CodexClientError.identityUnavailable
+        }
         if !hasVerifiedOriginal {
             hasVerifiedOriginal = true
             return AccountIdentity(accountID: original.accountID, email: original.email)
         }
         await recorder.append(.verifyTargetIdentity)
+        if failsTargetIdentity { throw CodexClientError.identityUnavailable }
         return AccountIdentity(accountID: target.accountID, email: target.email)
     }
 }
@@ -112,6 +126,8 @@ private actor FakeProviderConfiguration: ProviderConfigurationServicing {
         await recorder?.append(.activateTargetProvider)
         providerID = id
     }
+
+    func activeProviderID() -> String { providerID }
 }
 
 private actor FakeProviderSwitchService: ProviderSwitchServicing {
@@ -298,12 +314,47 @@ struct CoreChecks {
         let switcher = SwitchService(
             desktop: FakeDesktop(recorder: recorder),
             store: FakeStore(recorder: recorder, original: first, target: second),
-            codex: FakeCodex(recorder: recorder, original: first, target: second),
+            codex: FakeCodex(
+                recorder: recorder,
+                original: first,
+                target: second,
+                configuration: providerConfiguration
+            ),
             configuration: providerConfiguration
         )
         try await switcher.switchAccount(to: second.id)
         let recordedStages = await recorder.snapshot()
         try require(recordedStages == SwitchStage.allCases, "switch stage order")
+
+        let failureRecorder = Recorder()
+        let failureConfiguration = FakeProviderConfiguration(
+            providerID: "azure",
+            recorder: failureRecorder
+        )
+        let failureStore = FakeStore(recorder: failureRecorder, original: first, target: second)
+        let failureSwitcher = SwitchService(
+            desktop: FakeDesktop(recorder: failureRecorder),
+            store: failureStore,
+            codex: FakeCodex(
+                recorder: failureRecorder,
+                original: first,
+                target: second,
+                configuration: failureConfiguration,
+                failsTargetIdentity: true
+            ),
+            configuration: failureConfiguration
+        )
+        do {
+            try await failureSwitcher.switchAccount(to: second.id)
+            throw CheckFailure.failed("target identity failure must stop the switch")
+        } catch let error as OperationError {
+            try require(error.stage == .verifyTargetIdentity, "target identity failure stage")
+        }
+        let failureStages = await failureRecorder.snapshot()
+        try require(failureStages.last == .reopenDesktop, "post-close switch failure reopens Desktop")
+        let restoredProviderID = await failureConfiguration.activeProviderID()
+        try require(restoredProviderID == "azure", "post-close switch failure restores provider")
+
         let providerSwitcher = ProviderSwitchService(
             desktop: FakeDesktop(recorder: recorder),
             store: FakeStore(recorder: recorder, original: first, target: second),

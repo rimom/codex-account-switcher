@@ -85,15 +85,15 @@ The switch implementation is intentionally sequential:
 ```text
 Preflight target and original active profile
 → close Codex Desktop
+→ activate the built-in OpenAI provider
 → save current credentials
 → activate target credentials
-→ activate the built-in OpenAI provider
 → verify target identity
 → commit active profile
 → reopen Codex Desktop
 ```
 
-Before any credential write, preflight reads the registry and validates `originalActiveID`. After target activation succeeds, a verification or registry-commit failure restores `~/.codex/auth.json` from the original profile snapshot saved earlier in the same attempt. An activation failure does not run restoration because replacement did not complete. A Desktop-reopen failure occurs after the registry commit and keeps the selected account active.
+Before any credential write, preflight reads the registry and validates `originalActiveID`. After Desktop closes, the built-in `openai` provider is activated so `account/read` can validate saved ChatGPT identities even when the previous selection was a custom provider. Failures before target activation restore the original provider and reopen Desktop. Failures from target activation through registry commit restore the original credential and provider, then reopen Desktop. A Desktop-reopen failure after commit keeps the selected account active.
 
 The MVP does not implement:
 
@@ -104,7 +104,7 @@ The MVP does not implement:
 - startup recovery;
 - silent fallback to the previous account.
 
-When a step fails, execution stops and the exact original error is shown. If the bounded credential restoration also fails, the same error report contains both failures.
+When a step fails, execution stops and the exact original error is shown. If bounded restoration or reopening also fails, the same error report contains those failures.
 
 Configured-provider switching closes Codex Desktop, writes only `model_provider` through Codex app-server, and reopens Desktop. A failed provider activation attempts to restore the previous provider. A Desktop-reopen failure keeps the selected provider active.
 

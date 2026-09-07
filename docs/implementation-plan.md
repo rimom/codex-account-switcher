@@ -72,6 +72,7 @@ Implement `SwitchService` in the documented order:
 ```text
 preflight
 close Desktop
+activate OpenAI provider
 save current
 activate target
 verify target

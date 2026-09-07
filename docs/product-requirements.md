@@ -189,9 +189,9 @@ Cancel returns to the account list without closing the popover or starting the s
 After confirmation, disable additional actions while the seven-stage account operation runs:
 
 - `Closing Codex Desktop…`
+- `Activating OpenAI provider…`
 - `Saving current account…` (read and match the active identity before saving its credential)
 - `Activating selected account…`
-- `Activating OpenAI provider…`
 - `Verifying selected account…`
 - `Saving selected account…`
 - `Opening Codex Desktop…`
@@ -211,14 +211,14 @@ On success:
 
 ### 7.5 Failure
 
-On failure:
+On failure before Desktop closes:
 
 - stop immediately;
 - do not continue to later stages;
 - show the failed stage and the underlying error;
 - keep the error visible until the user dismisses it.
 
-If target activation completed and target verification or registry persistence fails, restore the active `auth.json` from the validated original profile saved earlier in the attempt. Keep the original failure visible. If restoration fails, show both the original and restoration errors. Do not restore after an activation failure that did not replace the credential, and keep the target account active when Desktop reopening fails after a successful registry commit.
+After Desktop closes, activate `openai` before reading the current ChatGPT identity. If provider activation or current-credential validation fails, restore the original provider and attempt to reopen Desktop. From target-credential activation through registry persistence, restore the active `auth.json` from the validated original profile, restore the original provider, and attempt to reopen Desktop. Keep the original failure visible; include any restoration or reopening failure in the same report. Keep the target account active when Desktop reopening fails after a successful registry commit.
 
 This bounded repair does not add a general rollback state machine, credential backup file, retry, journal, or startup recovery.
 

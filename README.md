@@ -122,7 +122,7 @@ Comparisons with other account switchers are welcome. Please describe the workfl
 - The current account appears through a row highlight inside the popover.
 - Persisted 5-hour and weekly usage remains visible while fresh data loads; the 5-hour row appears only when enabled and the service provides an exact 300-minute window.
 - Every switch stops immediately on the first reported error.
-- If target verification or the registry commit fails after credential activation, the app restores the just-saved original profile credential while preserving the original error. A restoration error is reported alongside it.
+- When returning from a custom provider to a saved ChatGPT account, the app activates `openai` before reading either account identity. A failure after Desktop closes restores the relevant provider and credential state, attempts to reopen Desktop, and preserves the original error. Restoration or reopening failures are reported alongside it.
 - General rollback state machines, retries, credential backup files, recovery journals, startup recovery, and policy-based routing stay outside the product scope.
 
 ## Release status

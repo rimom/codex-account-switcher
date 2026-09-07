@@ -12,7 +12,7 @@ struct SwitchServiceTests {
         #expect(await fixture.store.restoredProfileIDs().isEmpty)
     }
 
-    @Test func executesTheSixSwitchStagesInOrder() async throws {
+    @Test func switchesFromCustomProviderAfterActivatingOpenAIBeforeIdentityReads() async throws {
         let fixture = SwitchFixture(failure: nil)
 
         try await fixture.service.switchAccount(to: fixture.target.id)
@@ -37,7 +37,11 @@ struct SwitchServiceTests {
                 Issue.record("Expected OperationError, got \(error)")
             }
             let index = SwitchStage.allCases.firstIndex(of: stage)!
-            #expect(await fixture.recorder.snapshot() == Array(SwitchStage.allCases[...index]))
+            var expected = Array(SwitchStage.allCases[...index])
+            if stage != .closeDesktop, stage != .reopenDesktop {
+                expected.append(.reopenDesktop)
+            }
+            #expect(await fixture.recorder.snapshot() == expected)
         }
     }
 
@@ -75,14 +79,15 @@ struct SwitchServiceTests {
         #expect(await fixture.store.restoredProfileIDs() == [fixture.original.id, fixture.original.id])
     }
 
-    @Test func activationFailureBeforeReplacementDoesNotRestore() async {
+    @Test func activationFailureRestoresOriginalCredentialAndReopensDesktop() async {
         let fixture = SwitchFixture(failure: .activateTargetCredential)
 
         await expectFailure(fixture, stage: .activateTargetCredential)
 
         #expect(await fixture.store.credentialOwner() == fixture.original.id)
         #expect(await fixture.store.activeAccountID() == fixture.original.id)
-        #expect(await fixture.store.restoredProfileIDs().isEmpty)
+        #expect(await fixture.store.restoredProfileIDs() == [fixture.original.id])
+        #expect(await fixture.recorder.snapshot().last == .reopenDesktop)
     }
 
     @Test func reopenFailureAfterCommitKeepsTargetAccount() async {
@@ -292,8 +297,12 @@ private struct FakeCodex: CodexIdentityReading {
     let recorder: CallRecorder
     let failure: SwitchStage?
     let store: FakeStore
+    let configuration: FakeConfiguration
     let target: AccountProfile
     func readIdentity(profileHome: URL) async throws -> AccountIdentity {
+        guard await configuration.activeProviderID() == CodexConfigurationClient.openAIProviderID else {
+            throw CodexClientError.identityUnavailable
+        }
         if await store.credentialOwner() == store.original.id {
             return AccountIdentity(accountID: store.original.accountID, email: store.original.email)
         }
@@ -377,7 +386,13 @@ private struct SwitchFixture {
         service = SwitchService(
             desktop: FakeDesktop(recorder: recorder, failure: failure),
             store: store,
-            codex: FakeCodex(recorder: recorder, failure: failure, store: store, target: target),
+            codex: FakeCodex(
+                recorder: recorder,
+                failure: failure,
+                store: store,
+                configuration: configuration,
+                target: target
+            ),
             configuration: configuration
         )
     }

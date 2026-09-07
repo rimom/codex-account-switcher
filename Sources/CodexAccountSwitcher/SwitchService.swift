@@ -63,9 +63,17 @@ struct SwitchService: SwitchServicing {
             throw OperationError.stage(.closeDesktop, error)
         }
 
+        var failedStage = SwitchStage.activateTargetProvider
+        var restoresCredential = false
         do {
+            try await configuration.activateProvider(
+                id: CodexConfigurationClient.openAIProviderID,
+                codexHome: codexHome
+            )
+
+            failedStage = .saveCurrentCredential
             if let originalProfile {
-                let identity = try await codex.readIdentity(profileHome: await store.activeCodexHome())
+                let identity = try await codex.readIdentity(profileHome: codexHome)
                 guard identity.matches(originalProfile) else {
                     throw AccountStoreError.activeCredentialMismatch
                 }
@@ -73,56 +81,29 @@ struct SwitchService: SwitchServicing {
             } else if await store.activeCredentialExists() {
                 throw AccountStoreError.activeCredentialMismatch
             }
-        } catch {
-            throw OperationError.stage(.saveCurrentCredential, error)
-        }
 
-        do {
+            failedStage = .activateTargetCredential
+            restoresCredential = true
             try await store.activateTargetCredential(id: targetID)
-        } catch {
-            throw OperationError.stage(.activateTargetCredential, error)
-        }
 
-        do {
-            try await configuration.activateProvider(
-                id: CodexConfigurationClient.openAIProviderID,
-                codexHome: codexHome
-            )
-        } catch {
-            throw await restoringOriginalState(
-                originalActiveID: originalActiveID,
-                originalProviderID: originalProviderID,
-                codexHome: codexHome,
-                failedStage: .activateTargetProvider,
-                originalError: error
-            )
-        }
-
-        do {
+            failedStage = .verifyTargetIdentity
             let identity = try await codex.readIdentity(profileHome: codexHome)
             guard identity.matches(target) else {
                 throw CodexClientError.identityUnavailable
             }
-        } catch {
-            throw await restoringOriginalState(
-                originalActiveID: originalActiveID,
-                originalProviderID: originalProviderID,
-                codexHome: codexHome,
-                failedStage: .verifyTargetIdentity,
-                originalError: error
-            )
-        }
 
-        do {
+            failedStage = .commitActiveAccountID
             try await store.commitActiveAccountID(targetID)
         } catch {
-            throw await restoringOriginalState(
+            let restoredError = await restoringOriginalState(
                 originalActiveID: originalActiveID,
                 originalProviderID: originalProviderID,
                 codexHome: codexHome,
-                failedStage: .commitActiveAccountID,
+                restoresCredential: restoresCredential,
+                failedStage: failedStage,
                 originalError: error
             )
+            throw await reopeningDesktop(after: restoredError)
         }
 
         do {
@@ -136,18 +117,21 @@ struct SwitchService: SwitchServicing {
         originalActiveID: UUID?,
         originalProviderID: String,
         codexHome: URL,
+        restoresCredential: Bool,
         failedStage: SwitchStage,
         originalError: any Error
     ) async -> OperationError {
         var restorationErrors: [String] = []
-        do {
-            if let originalActiveID {
-                try await store.restoreActiveCredential(id: originalActiveID)
-            } else {
-                try await store.clearActiveCredential()
+        if restoresCredential {
+            do {
+                if let originalActiveID {
+                    try await store.restoreActiveCredential(id: originalActiveID)
+                } else {
+                    try await store.clearActiveCredential()
+                }
+            } catch let restorationError {
+                restorationErrors.append("credential: \(restorationError.localizedDescription)")
             }
-        } catch let restorationError {
-            restorationErrors.append("credential: \(restorationError.localizedDescription)")
         }
         do {
             try await configuration.activateProvider(id: originalProviderID, codexHome: codexHome)
@@ -170,5 +154,26 @@ struct SwitchService: SwitchServicing {
             \(restorationErrors.joined(separator: "; "))
             """
         )
+    }
+
+    private func reopeningDesktop(after error: OperationError) async -> OperationError {
+        do {
+            try await desktop.reopenDesktop()
+            return error
+        } catch let reopenError {
+            return OperationError(
+                stage: error.stage,
+                titleKey: error.titleKey,
+                messageKey: nil,
+                message: """
+                \(error.message) Reopening Codex Desktop also failed: \
+                \(reopenError.localizedDescription)
+                """,
+                underlyingDescription: """
+                \(error.underlyingDescription ?? error.message); reopen: \
+                \(String(describing: reopenError))
+                """
+            )
+        }
     }
 }

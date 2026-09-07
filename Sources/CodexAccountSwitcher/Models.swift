@@ -160,9 +160,9 @@ struct AccountIdentity: Equatable, Sendable {
 
 enum SwitchStage: String, CaseIterable, Sendable {
     case closeDesktop
+    case activateTargetProvider
     case saveCurrentCredential
     case activateTargetCredential
-    case activateTargetProvider
     case verifyTargetIdentity
     case commitActiveAccountID
     case reopenDesktop

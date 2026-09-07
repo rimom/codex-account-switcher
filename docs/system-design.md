@@ -265,9 +265,9 @@ enum UsageViewState: Equatable {
 ```swift
 enum SwitchStage: String {
     case closeDesktop
+    case activateTargetProvider
     case saveCurrentCredential
     case activateTargetCredential
-    case activateTargetProvider
     case verifyTargetIdentity
     case commitActiveAccountID
     case reopenDesktop
@@ -436,7 +436,7 @@ Use `NSRunningApplication` for the Codex Desktop bundle identifier and call `ter
 
 Codex Desktop can display a quit confirmation while work is active. Allow up to 30 seconds for its normal exit, including its history and settings flush. Never force-terminate Desktop. If the quit request is rejected or Desktop remains running, report a close-stage error before saving or replacing credentials. The user can finish or stop active tasks, close Desktop, and switch again. Cancellation also stops the wait.
 
-The switcher only observes the Desktop application's exit; it does not terminate CLI processes or claim to repair Codex's history database. Account RPCs read the login shell's `PATH` and shared `CODEX_CLI_PATH` setting. A bare command such as `codex` resolves through that PATH; an explicit absolute path must be executable. The child receives the same PATH so npm launchers can find Node. There is no switcher-specific override or automatic selection of another bundled CLI.
+The switcher only observes the Desktop application's exit; it does not terminate CLI processes or claim to repair Codex's history database. When the app bundle contains a `codex` auxiliary executable, account RPCs use that same packaged runtime and set `CODEX_CLI_PATH` for the child. A normal package without a bundled runtime reads the login shell's `PATH` and shared `CODEX_CLI_PATH` setting. A bare command such as `codex` resolves through that PATH; an explicit absolute path must be executable. The child receives the same PATH so npm launchers can find Node.
 
 If Desktop is not running, `close()` succeeds immediately.
 
@@ -466,7 +466,8 @@ An existing CLI process may have already loaded credentials into memory. Therefo
 stateDiagram-v2
     [*] --> Preflight
     Preflight --> ClosingDesktop
-    ClosingDesktop --> SavingCurrent
+    ClosingDesktop --> ActivatingOpenAI
+    ActivatingOpenAI --> SavingCurrent
     SavingCurrent --> ActivatingTarget
     ActivatingTarget --> VerifyingTarget
     VerifyingTarget --> CommittingProfile
@@ -475,18 +476,21 @@ stateDiagram-v2
 
     Preflight --> Failed
     ClosingDesktop --> Failed
-    SavingCurrent --> Failed
-    ActivatingTarget --> Failed
+    ActivatingOpenAI --> RestoringProvider
+    SavingCurrent --> RestoringProvider
+    ActivatingTarget --> RestoringOriginal
     VerifyingTarget --> RestoringOriginal
     CommittingProfile --> RestoringOriginal
-    RestoringOriginal --> Failed
+    RestoringProvider --> ReopeningAfterFailure
+    RestoringOriginal --> ReopeningAfterFailure
+    ReopeningAfterFailure --> Failed
     ReopeningDesktop --> Failed
 
     Completed --> [*]
     Failed --> [*]
 ```
 
-`RestoringOriginal` is the single bounded consistency action after successful target activation and before a successful registry commit. There is no persisted or general rollback state machine.
+`RestoringProvider` and `RestoringOriginal` are bounded consistency actions after Desktop has closed. Both lead to a Desktop reopen attempt before the original failure is reported. There is no persisted or general rollback state machine.
 
 ### 12.2 Pseudocode
 
@@ -502,25 +506,31 @@ func switchAccount(to targetID: UUID) async throws {
     stage = .closeDesktop
     try await desktop.closeDesktop()
 
-    stage = .saveCurrentCredential
-    try await store.saveCurrentCredential()
-
-    stage = .activateTargetCredential
-    try await store.activateTargetCredential(id: target.id)
-
-    stage = .verifyTargetIdentity
+    var restoresCredential = false
     do {
+        stage = .activateTargetProvider
+        try await configuration.activateProvider(id: "openai", codexHome: store.activeCodexHome())
+
+        stage = .saveCurrentCredential
+        try await validateAndSaveCurrentCredential()
+
+        stage = .activateTargetCredential
+        restoresCredential = true
+        try await store.activateTargetCredential(id: target.id)
+
+        stage = .verifyTargetIdentity
         let identity = try await codex.readIdentity(profileHome: store.activeCodexHome())
         guard identity.matches(target) else { throw CodexClientError.identityUnavailable }
-    } catch {
-        throw await restoreOriginalCredential(originalActiveID, preserving: error)
-    }
 
-    stage = .commitActiveAccountID
-    do {
+        stage = .commitActiveAccountID
         try await store.commitActiveAccountID(target.id)
     } catch {
-        throw await restoreOriginalCredential(originalActiveID, preserving: error)
+        let restored = await restoreOriginalState(
+            credential: restoresCredential ? originalActiveID : nil,
+            provider: originalProviderID,
+            preserving: error
+        )
+        throw await reopenDesktop(preserving: restored)
     }
 
     stage = .reopenDesktop
@@ -528,7 +538,7 @@ func switchAccount(to targetID: UUID) async throws {
 }
 ```
 
-The restoration helper reuses the saved profile credential and the same atomic installation path. It returns the original stage error after a successful restoration, or one error containing both the original and restoration failures.
+The restoration helper reuses the saved profile credential and the same atomic installation path when target activation may have changed `auth.json`. Earlier failures restore only the original provider. It returns the original stage error after successful restoration and reopening, or one error containing the original, restoration, and reopening failures.
 
 ### 12.3 Preflight
 
@@ -540,13 +550,17 @@ Preflight performs only the minimum required to start:
 
 It does not inspect every filesystem property, create backups, test network reachability, or pre-verify credentials.
 
-These checks occur before the six recorded `SwitchStage` values.
+These checks occur before the seven recorded `SwitchStage` values.
 
 ### 12.4 Close Codex Desktop
 
 Closing Desktop comes before saving the active credential so Codex has a chance to finish its normal shutdown writes.
 
-### 12.5 Save current credentials
+### 12.5 Activate the OpenAI provider
+
+Set `model_provider` to the built-in `openai` provider before either ChatGPT identity read. A custom provider may validly use its own authentication and return no ChatGPT account identity even though the shared `auth.json` is valid. If activation fails, restore the original provider and attempt to reopen Desktop.
+
+### 12.6 Save current credentials
 
 The registry must identify one active account. After Desktop exits, read the shared home’s current identity and match it against this profile before saving. An external login mismatch stops visibly and leaves saved profiles unchanged.
 
@@ -558,7 +572,9 @@ copy ~/.codex/auth.json
 
 If the active file is missing or unreadable, stop and show the error. Do not continue by assuming the stored snapshot is good enough.
 
-### 12.6 Activate target
+If validation or saving fails, restore the original provider and attempt to reopen Desktop.
+
+### 12.7 Activate target
 
 ```text
 copy accounts/<targetID>/auth.json
@@ -567,23 +583,23 @@ copy accounts/<targetID>/auth.json
 → rename the temporary file to ~/.codex/auth.json
 ```
 
-If activation fails, stop. Atomic installation throws before a completed replacement, so no restoration runs. There is no credential backup file.
+If activation fails, reinstall the original saved credential, restore the original provider, and attempt to reopen Desktop. There is no separate credential backup file.
 
-### 12.7 Verify target
+### 12.8 Verify target
 
 Start Codex app-server using the active `~/.codex` home and read identity.
 
-If identity does not match the target metadata, preserve the mismatch as the stage error and reinstall the just-saved original profile credential into `~/.codex/auth.json`.
+If identity does not match the target metadata, preserve the mismatch as the stage error, reinstall the just-saved original profile credential into `~/.codex/auth.json`, restore the original provider, and attempt to reopen Desktop.
 
-### 12.8 Commit active profile
+### 12.9 Commit active profile
 
 After successful identity verification, write `activeAccountID` and `lastUsedAt` to `accounts.json`.
 
-If this write fails, preserve the registry error and reinstall the just-saved original profile credential. The registry continues to name the original profile. No retry or startup reconciliation runs.
+If this write fails, preserve the registry error, reinstall the just-saved original profile credential, restore the original provider, and attempt to reopen Desktop. The registry continues to name the original profile. No retry or startup reconciliation runs.
 
-### 12.9 Reopen Desktop
+### 12.10 Reopen Desktop
 
-Always attempt to reopen Codex Desktop after metadata commit.
+Always attempt to reopen Codex Desktop after metadata commit and after handling a post-close failure.
 
 If opening fails, report `reopeningDesktop` failure. The selected account remains active.
 
