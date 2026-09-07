@@ -32,7 +32,10 @@ struct MenuBarPopover: View {
                 case let .confirmAccountSwitch(account):
                     SwitchConfirmationPage(
                         title: model.format("switch_title", account.displayName),
-                        message: model.text("switch_body"),
+                        message: model.text("switch_body") + (
+                            model.activeProviderID != CodexConfigurationClient.openAIProviderID
+                                ? "\n\n" + model.text("return_account_model_notice") : ""
+                        ),
                         cancelTitle: model.text("cancel"),
                         confirmTitle: model.text("switch_account"),
                         onCancel: {
@@ -81,7 +84,7 @@ struct MenuBarPopover: View {
                     .background(.orange.opacity(0.08))
             }
 
-            if model.accounts.isEmpty && model.providers.isEmpty {
+            if model.accounts.isEmpty && (!model.settings.enablesProviderSwitching || model.providers.isEmpty) {
                 Text(model.text("no_accounts"))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
@@ -111,7 +114,7 @@ struct MenuBarPopover: View {
                         }
                     }
 
-                    if !model.providers.isEmpty {
+                    if model.settings.enablesProviderSwitching && !model.providers.isEmpty {
                         sectionHeader(model.text("providers"))
                         ForEach(model.providers) { provider in
                             Button {

@@ -295,7 +295,8 @@ final class AppModel: ObservableObject {
     }
 
     func switchProvider(to provider: ProviderProfile) async {
-        guard !isProviderActive(provider), !isMutating else { return }
+        guard settings.enablesProviderSwitching,
+              !isProviderActive(provider), !isMutating else { return }
         isMutating = true
         defer { isMutating = false }
         do {
@@ -394,6 +395,17 @@ final class AppModel: ObservableObject {
         settings.showsFiveHourUsage = enabled
         do {
             try await store.saveSettings(settings)
+        } catch {
+            showError(error)
+        }
+    }
+
+    func setEnablesProviderSwitching(_ enabled: Bool) async {
+        var updated = settings
+        updated.enablesProviderSwitching = enabled
+        do {
+            try await store.saveSettings(updated)
+            settings = updated
         } catch {
             showError(error)
         }

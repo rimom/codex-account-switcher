@@ -2,7 +2,7 @@
 
 ## 1. Goal
 
-Allow an ordinary Mac user to choose either a saved ChatGPT account or an already-configured Codex model provider from the menu bar, without routine Terminal commands or config-file editing.
+Allow an ordinary Mac user to choose a saved ChatGPT account from the menu bar. Advanced users may opt into provider selection after configuring providers and compatible models in Codex; model changes may require manual configuration.
 
 The user should understand the product after opening the menu once. The main path should require no configuration.
 
@@ -59,7 +59,7 @@ As a user, I can choose System Default, English, or Simplified Chinese.
 
 ### US-6: Switch configured provider
 
-As a user, I can see custom model providers already configured in Codex, select one, and have Codex Desktop reopen with that provider active. The switcher does not request or persist the provider's credentials.
+As a user, I can see custom model providers already configured in Codex, select one, and have Codex Desktop reopen with that provider active. The switcher receives full configuration in memory, potentially including inline credentials, but retains only provider IDs/names for the UI and does not display, log, or persist custom-provider credentials.
 
 ## 4. Menu-bar trigger
 
@@ -149,7 +149,7 @@ Reset unknown
 
 ### 5.5 Provider row
 
-Custom providers returned by Codex appear below the account list under **Configured Providers**. Each row shows the provider's configured display name, falls back to a human-readable form of its identifier, exposes selected state, and does not show ChatGPT Usage.
+When advanced provider switching is enabled (off by default), custom providers returned by Codex appear below the account list under **Configured Providers**. Each row shows the provider's configured display name, falls back to a human-readable form of its identifier, exposes selected state, and does not show ChatGPT Usage.
 
 ## 6. Main-menu footer
 

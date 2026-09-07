@@ -8,7 +8,7 @@ Codex Account Switcher is a simple switcher. Every persistent control must direc
 2. select an account;
 3. maintain the saved account list;
 4. exit the application;
-5. select a custom model provider already configured in Codex.
+5. optionally enable advanced selection of providers already configured in Codex, with manual model setup when needed.
 
 Anything outside those jobs is excluded from the MVP.
 
@@ -33,7 +33,7 @@ The current account is represented by a highlighted row. It does not use:
 - a `Current` label;
 - a second status column.
 
-Custom providers returned by Codex are shown in a separate **Configured Providers** section. Provider rows show a configured name, use a checkmark in addition to highlighting for active state, and never display ChatGPT Usage.
+After opt-in in Settings (off by default), custom providers returned by Codex are shown in a separate **Configured Providers** section. Provider rows show a configured name, use a checkmark in addition to highlighting for active state, and never display ChatGPT Usage.
 
 The footer divides its width equally between:
 
@@ -108,7 +108,7 @@ When a step fails, execution stops and the exact original error is shown. If the
 
 Configured-provider switching closes Codex Desktop, writes only `model_provider` through Codex app-server, and reopens Desktop. A failed provider activation attempts to restore the previous provider. A Desktop-reopen failure keeps the selected provider active.
 
-Provider credentials are not an account-switching concern. The app does not request or store custom-provider API keys, read provider environment-variable values, or execute provider authentication commands itself.
+Provider credentials are not an account-switching concern. The app receives full configuration through `config/read`, so inline secrets may enter process memory. It retains provider IDs/names for the UI and does not display, log, or persist custom-provider API keys. It does not independently read provider environment-variable values or invoke authentication commands; Codex controls authentication.
 
 ## 6. Credential storage
 

@@ -8,8 +8,8 @@
 <h1 align="center">Codex Account Switcher</h1>
 
 <p align="center">
-  <strong>Switch Codex accounts and configured model providers from your Mac menu bar.</strong><br>
-  Add accounts once, then choose an account or provider when you need it.
+  <strong>Switch Codex accounts from your Mac menu bar.</strong><br>
+  Add accounts once, then choose the account you need.
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@
 
 <p align="center">Created and maintained by <a href="https://liuzhao1225.github.io/codex-account-switcher/about/creator/">Zhao Liu (GitHub: liuzhao1225)</a> · <a href="https://x.com/liuzhao_666">X</a> · <a href="https://space.bilibili.com/1263732318">Bilibili</a></p>
 
-Codex Account Switcher is a free, native Mac app for people who use more than one authorized Codex account or model provider. Add personal, work, or client accounts through the browser once, then choose the account you need from the menu bar. Custom providers already configured in Codex, such as Azure OpenAI or a local gateway, appear in the same popover without exposing their credentials to the switcher UI.
+Codex Account Switcher is a free, native Mac app for people who use more than one authorized Codex account. Add personal, work, or client accounts through the browser once, then choose the account you need from the menu bar. Advanced users can opt into selecting providers already configured in Codex. This does not configure or validate models.
 
 After you select and confirm an account or provider, the app closes Codex Desktop, applies the selection through Codex's local interfaces, and reopens Desktop. Account selections activate the built-in OpenAI provider and verify the selected identity. Provider selections update only Codex's `model_provider`; their existing authentication configuration remains owned by Codex. Saved account data stays on your Mac. The app runs without its own proxy, traffic router, cloud account service, or automatic account rotation.
 
@@ -83,7 +83,7 @@ The current public build targets **Apple Silicon** and requires **macOS 14 or la
 | --- | --- |
 | **No-code setup** | Add accounts through the normal browser sign-in flow, with no Terminal commands or config files. |
 | **Menu-bar account choice** | Keep personal, work, and client accounts clearly labeled in one Mac menu. |
-| **Configured provider choice** | Select custom providers already declared in Codex configuration without manually editing `model_provider`. |
+| **Advanced provider choice (opt-in)** | Enable in Settings for providers already configured in Codex. Model setup may still be required. |
 | **Completed Desktop handoff** | Select and confirm an account, then let the app close, switch, verify, and reopen Codex Desktop. |
 | **Local account storage** | Keep saved account data on your Mac without an app-owned proxy or cloud account service. |
 | **Usage at a glance** | Check weekly allowance by default, or enable the exact 300-minute (5-hour) service window and reset time in Settings. The optional row is off by default. |
@@ -94,7 +94,7 @@ The current public build targets **Apple Silicon** and requires **macOS 14 or la
 1. **Download the Mac app:** open the Apple-notarized DMG and drag the app to Applications.
 2. **Add each account once:** complete the familiar browser sign-in and give each account a clear name.
 3. **Choose and continue:** select an account from the menu bar, confirm, and let the app reopen Codex Desktop.
-4. **Use configured providers when needed:** select a provider already present under Codex's `model_providers` configuration; the switcher updates the active provider and restarts Desktop.
+4. **Optional advanced providers:** enable **Settings → Advanced → Enable provider switching** after setting up the provider and a compatible model in Codex. The switcher changes the provider only.
 
 Existing terminal processes keep their current runtime state. Start a new Codex CLI process to use the newly selected account.
 
@@ -152,17 +152,6 @@ Create a local app bundle:
 ./scripts/package-local-app.sh
 ```
 
-To package a specific Codex app-server backend and use it for both the switcher and Codex Desktop:
-
-```bash
-CODEX_BACKEND_BINARY=/absolute/path/to/codex \
-CODEX_CODE_MODE_HOST_BINARY=/absolute/path/to/codex-code-mode-host \
-./scripts/package-local-app.sh
-```
-
-Both executables are required because Codex Desktop resolves the code-mode host beside the selected
-app-server executable.
-
 The bundle is written to `.build/release/Codex Account Switcher.app`.
 
 ### Automated releases
@@ -219,7 +208,9 @@ Add each authorized account once. Select the account from the menu bar and confi
 
 ### How do I switch model providers?
 
-Configure the provider in Codex first. It then appears under **Configured Providers** in the menu-bar popover. Selecting it changes Codex's active `model_provider` and reopens Desktop. Existing conversations keep their original provider.
+Configure the provider and a working model in Codex first, then enable **Settings → Advanced → Enable provider switching**. Selecting a provider changes only `model_provider` and restarts Desktop. The switcher does not select a model, discover deployments, validate compatibility, or manage model catalogs. If the retained model ID is unsupported, requests can fail. Select a compatible model in Desktop if available, otherwise configure it in Codex. Returning to a saved ChatGPT account restores `openai` but does not restore a previous OpenAI model or catalog. Existing conversations are not migrated.
+
+The stock Desktop round trip with different model IDs remains an acceptance requirement, not a verified feature. See [provider compatibility and validation](docs/provider-compatibility.md).
 
 ### Can I enter an API key in the switcher?
 

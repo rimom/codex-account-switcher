@@ -46,6 +46,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     var language: AppLanguage
     var showsMenuBarPercentage: Bool
     var showsFiveHourUsage: Bool
+    var enablesProviderSwitching: Bool
 
     static let `default` = AppSettings(
         language: .system,
@@ -56,11 +57,13 @@ struct AppSettings: Codable, Equatable, Sendable {
     init(
         language: AppLanguage,
         showsMenuBarPercentage: Bool = true,
-        showsFiveHourUsage: Bool = false
+        showsFiveHourUsage: Bool = false,
+        enablesProviderSwitching: Bool = false
     ) {
         self.language = language
         self.showsMenuBarPercentage = showsMenuBarPercentage
         self.showsFiveHourUsage = showsFiveHourUsage
+        self.enablesProviderSwitching = enablesProviderSwitching
     }
 
     init(from decoder: any Decoder) throws {
@@ -73,6 +76,10 @@ struct AppSettings: Codable, Equatable, Sendable {
         showsFiveHourUsage = try container.decodeIfPresent(
             Bool.self,
             forKey: .showsFiveHourUsage
+        ) ?? false
+        enablesProviderSwitching = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .enablesProviderSwitching
         ) ?? false
     }
 }

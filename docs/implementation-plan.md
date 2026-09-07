@@ -159,7 +159,7 @@ Exit criteria:
 - every configured custom provider appears by configured name or readable identifier;
 - provider selection restarts Codex Desktop and changes only `model_provider`;
 - account selection restores `openai` before identity verification;
-- the switcher does not request or persist custom-provider credentials;
+- full configuration, including inline credentials, may enter memory; custom-provider credentials are not displayed, logged, or persisted;
 - thread databases and rollout files are never edited.
 
 ## 10. Suggested first implementation order
@@ -197,6 +197,6 @@ Before merging MVP code, verify:
 - CLI processes are not enumerated or killed;
 - errors include the failed stage;
 - auth contents are never logged;
-- provider credentials are never requested, persisted, or logged;
+- inline provider credentials may enter memory through `config/read`, but are not displayed, persisted, or logged;
 - provider switching uses Codex app-server configuration APIs;
 - existing conversations are not rewritten to another provider.

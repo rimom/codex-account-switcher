@@ -102,8 +102,9 @@ private actor FakeProviderConfiguration: ProviderConfigurationServicing {
     }
 }
 
-private struct FakeProviderSwitchService: ProviderSwitchServicing {
-    func switchProvider(to providerID: String) async throws {}
+private actor FakeProviderSwitchService: ProviderSwitchServicing {
+    private(set) var calls = 0
+    func switchProvider(to providerID: String) async throws { calls += 1 }
 }
 
 private struct InjectedReopenFailure: LocalizedError {
@@ -239,6 +240,8 @@ struct CoreChecks {
         try Data(#"{"language":"english"}"#.utf8).write(to: settingsURL)
         let legacySettings = try await store.loadSettings()
         try require(legacySettings.language == .english, "legacy settings language")
+        try require(!AppSettings.default.enablesProviderSwitching, "providers are opt-in")
+        try require(!legacySettings.enablesProviderSwitching, "upgrades do not enable providers")
         try require(
             legacySettings.showsMenuBarPercentage,
             "legacy settings enable menu bar percentage"
@@ -250,7 +253,8 @@ struct CoreChecks {
         let hiddenPercentageSettings = AppSettings(
             language: .simplifiedChinese,
             showsMenuBarPercentage: false,
-            showsFiveHourUsage: true
+            showsFiveHourUsage: true,
+            enablesProviderSwitching: true
         )
         try await store.saveSettings(hiddenPercentageSettings)
         let reloadedSettingsStore = AccountStore(baseURL: support, activeHomeURL: activeHome)
@@ -370,14 +374,16 @@ struct CoreChecks {
         let updatedProviderSnapshot = try await providerClient.readConfiguration(codexHome: root)
         try require(updatedProviderSnapshot.activeProviderID == "openai", "provider activation")
 
+        let gatedProviderService = FakeProviderSwitchService()
         let appModel = AppModel(
             store: store,
             codex: client,
             configuration: FakeProviderConfiguration(),
             switchService: ReopenFailureSwitchService(store: store),
-            providerSwitchService: FakeProviderSwitchService()
+            providerSwitchService: gatedProviderService
         )
         await appModel.start()
+
         try require(
             appModel.usageStates[first.id] == .loaded(cachedWeekly),
             "cached usage is visible at startup"
@@ -619,6 +625,19 @@ struct CoreChecks {
         } catch CodexClientError.timeout {
             // Expected: the first deadline stops the request without retrying.
         }
+
+        let provider = ProviderProfile(id: "azure", displayName: "Azure OpenAI")
+        await appModel.setEnablesProviderSwitching(false)
+        await appModel.switchProvider(to: provider)
+        let disabledCalls = await gatedProviderService.calls
+        try require(disabledCalls == 0, "disabled providers cannot trigger a switch")
+        await appModel.setEnablesProviderSwitching(true)
+        await appModel.switchProvider(to: provider)
+        let enabledCalls = await gatedProviderService.calls
+        try require(enabledCalls == 1, "enabled provider selection reaches the switching service")
+        await appModel.setEnablesProviderSwitching(false)
+        let savedAdvancedSettings = try await store.loadSettings()
+        try require(!savedAdvancedSettings.enablesProviderSwitching, "provider opt-out persists")
 
         print("Core checks passed")
     }

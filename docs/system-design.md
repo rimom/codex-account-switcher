@@ -370,6 +370,10 @@ If no six-to-eight-day window exists, return `weeklyUsageUnavailable`. Missing 5
 
 The switcher does not persist provider definitions or custom-provider secrets. Environment variables, command-backed authentication, and other provider-specific credential mechanisms remain owned by Codex and the user's existing configuration.
 
+`config/read` returns full effective configuration. Inline credentials can enter the switcher process in the decoded response. Only provider IDs/names are retained for the UI; this is not a claim that secrets never enter memory. Configuration reads also occur during account selection, even with the advanced provider UI disabled. The switcher does not display, log, or persist inline provider credentials.
+
+Provider selection is off by default, including when migrating older settings. Both provider rows and the AppModel switching action require opt-in. Disabling the setting does not modify Codex configuration. Model selection/catalog handling is outside this feature; see [compatibility and acceptance](provider-compatibility.md).
+
 Conversation provider identity is persisted by Codex. The switcher does not edit Codex's thread database or rollout files, so provider selection applies to new conversations and does not mutate existing conversations.
 
 ### 9.5 Timeouts
@@ -432,12 +436,6 @@ If Desktop is not running, `close()` succeeds immediately.
 ### 11.2 Open
 
 Use `NSWorkspace.shared.openApplication` with the installed Codex application URL.
-Resolve the Codex executable through `CodexExecutableLocator` and pass its path to Desktop as
-`CODEX_CLI_PATH`. This keeps the switcher's app-server operations and Codex Desktop on the same
-backend implementation. Local packages can embed that executable by setting
-`CODEX_BACKEND_BINARY` and its required sibling `CODEX_CODE_MODE_HOST_BINARY` when running
-`scripts/package-local-app.sh`. Packaging fails if only one executable is supplied, preventing a
-Desktop installation whose terminal and code-mode tools cannot start.
 
 If launch fails, return the AppKit error. The account switch remains at whatever stage already completed; no automatic account restoration occurs.
 

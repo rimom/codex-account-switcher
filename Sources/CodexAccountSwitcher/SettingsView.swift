@@ -108,6 +108,24 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 44)
+
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.text("advanced"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Toggle(model.text("enable_provider_switching"), isOn: Binding(
+                        get: { model.settings.enablesProviderSwitching },
+                        set: { enabled in Task { await model.setEnablesProviderSwitching(enabled) } }
+                    ))
+                    .toggleStyle(.switch)
+                    .disabled(model.isMutating)
+                    Text(model.text("provider_setup_notice"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(14)
             }
         }
         .onAppear {
