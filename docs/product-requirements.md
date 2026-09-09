@@ -232,7 +232,7 @@ close Codex Desktop
 → reopen Codex Desktop
 ```
 
-The app reads providers through `config/read` and writes only `model_provider`; it does not read environment-variable values or store custom-provider credentials. Selecting a saved ChatGPT account restores the built-in `openai` provider before identity verification.
+The app reads providers through `config/read` and writes only `model_provider`; it does not read environment-variable values or store custom-provider credentials. Selecting a saved ChatGPT account restores the built-in `openai` provider before identity verification. If provider activation fails after Desktop closes, the previous provider is restored and Desktop is reopened before the failure is reported.
 
 Codex persists a provider on each conversation. Switching providers therefore affects new conversations, while an existing conversation remains on the provider it was created with and must be created again or forked in Codex to change providers.
 

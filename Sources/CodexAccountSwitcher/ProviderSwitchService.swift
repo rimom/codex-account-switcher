@@ -34,17 +34,39 @@ struct ProviderSwitchService: ProviderSwitchServicing {
         do {
             try await configuration.activateProvider(id: providerID, codexHome: codexHome)
         } catch {
-            throw await restoringOriginalProvider(
+            let restoredError = await restoringOriginalProvider(
                 current.activeProviderID,
                 codexHome: codexHome,
                 originalError: error
             )
+            throw await reopeningDesktop(after: restoredError)
         }
 
         do {
             try await desktop.reopenDesktop()
         } catch {
             throw OperationError.stage(.reopenDesktop, error)
+        }
+    }
+
+    private func reopeningDesktop(after error: OperationError) async -> OperationError {
+        do {
+            try await desktop.reopenDesktop()
+            return error
+        } catch let reopenError {
+            return OperationError(
+                stage: error.stage,
+                titleKey: error.titleKey,
+                messageKey: nil,
+                message: """
+                \(error.message) Reopening Codex Desktop also failed: \
+                \(reopenError.localizedDescription)
+                """,
+                underlyingDescription: """
+                \(error.underlyingDescription ?? error.message); reopen: \
+                \(String(describing: reopenError))
+                """
+            )
         }
     }
 

@@ -164,6 +164,7 @@ struct SwitchServiceTests {
         }
 
         #expect(await configuration.activeProviderID() == "openai")
+        #expect(await fixture.recorder.snapshot().last == .reopenDesktop)
     }
 
     private func expectFailure(_ fixture: SwitchFixture, stage: SwitchStage) async {

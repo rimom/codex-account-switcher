@@ -99,9 +99,9 @@ Specific partial-state assertions:
 - a retry after restoration cannot overwrite the original profile with target credentials;
 - a restoration failure reports both the original and restoration errors;
 - Desktop-open error leaves target auth and target metadata active.
-- provider activation failure restores both the original credential and provider;
+- provider activation failure restores both the original credential and provider and reopens Desktop;
 - configured-provider switching runs close, activate, and reopen in order;
-- a provider write followed by verification failure restores the original provider.
+- a provider write followed by verification failure restores the original provider and reopens Desktop.
 
 Use both the fake store and the real `AccountStore` so call ordering, atomic credential installation, registry-write failure, and on-disk bytes are covered.
 

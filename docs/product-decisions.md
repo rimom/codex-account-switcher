@@ -106,7 +106,7 @@ The MVP does not implement:
 
 When a step fails, execution stops and the exact original error is shown. If bounded restoration or reopening also fails, the same error report contains those failures.
 
-Configured-provider switching closes Codex Desktop, writes only `model_provider` through Codex app-server, and reopens Desktop. A failed provider activation attempts to restore the previous provider. A Desktop-reopen failure keeps the selected provider active.
+Configured-provider switching closes Codex Desktop, writes only `model_provider` through Codex app-server, and reopens Desktop. A failed provider activation restores the previous provider and attempts to reopen Desktop. A Desktop-reopen failure keeps the selected provider active.
 
 Provider credentials are not an account-switching concern. The app receives full configuration through `config/read`, so inline secrets may enter process memory. It retains provider IDs/names for the UI and does not display, log, or persist custom-provider API keys. It does not independently read provider environment-variable values or invoke authentication commands; Codex controls authentication.
 
